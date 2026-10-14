@@ -3,75 +3,115 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0f172a" />
-  <title>Champions League · Análisis de Partidos</title>
+  <meta name="theme-color" content="#05060a" />
+  <title>SIGNAL · UCL · Premier · Libertadores</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Oswald:wght@500;600;700&family=Sora:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="is-feed">
+  <div class="fx-grid" aria-hidden="true"></div>
+  <div class="fx-scan" aria-hidden="true"></div>
+
   <header class="app-header">
     <div class="wrap header-inner">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">UCL</div>
+        <div class="brand-mark" aria-hidden="true">SG</div>
         <div>
-          <h1>UEFA Champions League</h1>
-          <p>Análisis de partidos · Forma reciente · Head to Head</p>
+          <p class="kicker">Sports Quant Terminal</p>
+          <h1>UCL · Premier · Libertadores</h1>
         </div>
       </div>
-      <div class="season-chip"><span></span> 2026-27 · League Phase</div>
+      <div class="header-meta">
+        <div class="season-chip"><span></span><b id="clock">--:--:--</b></div>
+        <div class="season-chip dim" id="season-label">Tres competiciones</div>
+      </div>
     </div>
   </header>
 
   <main class="wrap">
-    <section>
+    <section id="feed-block" class="feed-block">
       <div class="section-title">
         <div>
-          <h2>Partidos</h2>
-          <p>Solo UEFA Champions League · datos en vivo desde ESPN</p>
+          <span class="idx">01</span>
+          <h2>Feed de partidos</h2>
+          <p>Toca una card para ver el análisis. Champions League, Premier League y Copa Libertadores.</p>
+        </div>
+        <div class="feed-controls">
+          <div class="feed-toolbar" role="tablist">
+            <button type="button" class="league-tab active" data-league="all">Todas</button>
+            <button type="button" class="league-tab" data-league="ucl">UCL</button>
+            <button type="button" class="league-tab" data-league="epl">Premier League</button>
+            <button type="button" class="league-tab" data-league="lib">Libertadores</button>
+          </div>
+          <div class="feed-toolbar" role="tablist">
+            <button type="button" class="feed-tab active" data-feed="upcoming">Próximos</button>
+            <button type="button" class="feed-tab" data-feed="finished">Finalizados</button>
+            <button type="button" class="feed-tab" data-feed="all">Todos</button>
+          </div>
         </div>
       </div>
-      <div id="fixtures" class="fixtures-row"></div>
+      <div id="fixtures"></div>
     </section>
 
-    <section class="next-card" id="next-match" aria-live="polite"></section>
-    <section class="result-card" id="result-panel" hidden></section>
-
-    <section>
-      <div class="section-title">
-        <div>
-          <h2>Últimos 5 partidos (forma reciente)</h2>
-          <p>Comparativa local vs visitante</p>
-        </div>
+    <section id="detail-view" class="detail-view">
+      <div class="back-bar">
+        <button type="button" id="back-feed" class="back-btn">← Volver al feed</button>
       </div>
-      <div id="form" class="form-grid"></div>
-    </section>
 
-    <section class="h2h-card">
-      <div class="section-title">
-        <div>
-          <h2>Historial directo (Head to Head)</h2>
-          <p id="h2h-caption">Enfrentamientos previos del cruce seleccionado</p>
-        </div>
-      </div>
-      <div id="h2h"></div>
-    </section>
+      <section class="next-card" id="next-match" aria-live="polite"></section>
+      <section class="result-card" id="result-panel" hidden></section>
 
-    <section class="pred-section">
-      <div class="section-title">
-        <div>
-          <h2>Modelos predictivos</h2>
-          <p>Dixon-Coles (marcadores) · ELO 60/40 · Poisson ambos 2+</p>
+      <section>
+        <div class="section-title">
+          <div>
+            <span class="idx">02</span>
+            <h2>Forma reciente</h2>
+            <p>Últimos 5 · cápsulas W/D/L + barra de rendimiento</p>
+          </div>
         </div>
-      </div>
-      <div id="predictions" class="pred-grid"></div>
+        <div id="form" class="form-grid"></div>
+      </section>
+
+      <section class="h2h-card">
+        <div class="section-title">
+          <div>
+            <span class="idx">03</span>
+            <h2>Historial directo</h2>
+            <p id="h2h-caption">Enfrentamientos previos del cruce seleccionado</p>
+          </div>
+        </div>
+        <div id="h2h"></div>
+      </section>
+
+      <section class="pred-section">
+        <div class="section-title">
+          <div>
+            <span class="idx">04</span>
+            <h2>Modelos predictivos</h2>
+            <p>Dixon-Coles · ELO 60/40 · Poisson ambos 2+</p>
+          </div>
+        </div>
+        <div id="predictions" class="pred-grid"></div>
+      </section>
+
+      <section class="more-block">
+        <div class="section-title">
+          <div>
+            <span class="idx">05</span>
+            <h2>Más partidos</h2>
+            <p>Sigue viendo el feed abajo y cambia de cruce sin volver</p>
+          </div>
+        </div>
+        <div id="more-fixtures" class="more-rail"></div>
+      </section>
     </section>
   </main>
 
   <footer>
     <div class="wrap">
-      Datos en vivo desde ESPN API (`uefa.champions`). Forma, H2H y predicciones usan solo partidos de Champions League.
+      Datos en vivo desde ESPN: Champions League, Premier League y Copa Libertadores. Forma y H2H se calculan dentro de la misma competición.
     </div>
   </footer>
 

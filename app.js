@@ -1,11 +1,67 @@
-const ESPN = {
-  base: "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions"
-};
+const ESPN_ROOT = "https://site.api.espn.com/apis/site/v2/sports/soccer";
+
+const LEAGUES = [
+  {
+    id: "ucl",
+    short: "UCL",
+    name: "Champions League",
+    path: "uefa.champions",
+    weekdays: [2, 3, 4],
+    from: -45,
+    to: 28
+  },
+  {
+    id: "epl",
+    short: "EPL",
+    name: "Premier League",
+    path: "eng.1",
+    weekdays: [0, 1, 6],
+    from: -28,
+    to: 28
+  },
+  {
+    id: "lib",
+    short: "LIB",
+    name: "Copa Libertadores",
+    path: "conmebol.libertadores",
+    weekdays: [2, 3, 4],
+    from: -45,
+    to: 28
+  }
+];
 
 const scheduleCache = new Map();
 let fixtures = [];
-let uclPool = [];
+let eventPool = [];
 let selectedId = null;
+let feedView = "upcoming";
+let leagueView = "all";
+let screen = "feed";
+
+function setScreen(name) {
+  screen = name;
+  document.body.classList.toggle("is-feed", name === "feed");
+  document.body.classList.toggle("is-detail", name === "detail");
+  if (name === "detail") {
+    const panel = $("detail-view");
+    if (panel) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
+function visibleFixtures() {
+  return fixtures.filter((fix) => {
+    if (leagueView !== "all" && fix.leagueId !== leagueView) return false;
+    if (feedView === "upcoming") return !fix.completed;
+    if (feedView === "finished") return fix.completed;
+    return true;
+  });
+}
+
+function espnUrl(path) {
+  return `${ESPN_ROOT}/${path}`;
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -93,15 +149,20 @@ function normalizeFixture(event) {
   const venue = competition.venue || {};
   const status = competition.status?.type || {};
   return {
-    id: event.id,
+    id: `${event._leagueId || "ucl"}:${event.id}`,
+    eventId: event.id,
     date: event.date,
     status: status.name,
     statusLabel: status.description || status.name,
     completed: Boolean(status.completed),
     inProgress: Boolean(status.state === "in" || /PROGRESS|HALFTIME/i.test(status.name || "")),
-    round: event.seasonType?.name || event.season?.name || "Champions League",
+    league: event._leagueShort || "UCL",
+    leagueId: event._leagueId || "ucl",
+    leagueName: event._leagueName || "Champions League",
+    path: event._path || "uefa.champions",
+    round: event.seasonType?.name || event.season?.name || event._leagueName || "Liga",
     venue: venue.fullName || "Por confirmar",
-    city: venue.address?.city || "Europa",
+    city: venue.address?.city || "Por confirmar",
     home: teamInfo(home),
     away: teamInfo(away),
     homeScore: scoreValue(home),
@@ -130,34 +191,53 @@ function addDays(date, amount) {
   return next;
 }
 
-function uclScoreboardDays() {
+function scoreboardDays(league) {
   const unique = new Set();
   const now = new Date();
   for (let i = -3; i <= 2; i += 1) unique.add(yyyymmdd(addDays(now, i)));
-  for (let i = -45; i <= 28; i += 1) {
+  for (let i = league.from; i <= league.to; i += 1) {
     const day = addDays(now, i);
-    const weekday = day.getUTCDay();
-    if (weekday === 2 || weekday === 3 || weekday === 4) unique.add(yyyymmdd(day));
+    if (league.weekdays.includes(day.getUTCDay())) unique.add(yyyymmdd(day));
   }
   return [...unique].sort();
 }
 
-async function loadUpcoming() {
-  const days = uclScoreboardDays();
-  const boards = await Promise.all(days.map((day) => getJson(`${ESPN.base}/scoreboard?dates=${day}`)));
-  const season = boards.find((board) => board.leagues?.[0]?.season)?.leagues[0].season;
-  const chip = document.querySelector(".season-chip");
-  if (chip && season) {
-    chip.lastChild.textContent = ` ${season.displayName || "Champions League"} · ${season.type?.name || ""}`;
+async function getJsonSafe(url) {
+  try {
+    return await getJson(url);
+  } catch (_error) {
+    return { events: [] };
   }
+}
 
-  const unique = new Map();
+async function loadLeagueBoard(league) {
+  const days = scoreboardDays(league);
+  const boards = await Promise.all(
+    days.map((day) => getJsonSafe(`${espnUrl(league.path)}/scoreboard?dates=${day}`))
+  );
+  const events = [];
   boards.forEach((board) => {
-    (board.events || []).forEach((event) => unique.set(event.id, event));
+    (board.events || []).forEach((event) => {
+      event._leagueId = league.id;
+      event._leagueShort = league.short;
+      event._leagueName = league.name;
+      event._path = league.path;
+      events.push(event);
+    });
   });
+  return events;
+}
 
-  uclPool = [...unique.values()];
-  return uclPool
+async function loadUpcoming() {
+  const packs = await Promise.all(LEAGUES.map(loadLeagueBoard));
+  const unique = new Map();
+  packs.flat().forEach((event) => unique.set(`${event._leagueId}:${event.id}`, event));
+
+  eventPool = [...unique.values()];
+  const chip = $("season-label");
+  if (chip) chip.textContent = "UCL · Premier League · Libertadores";
+
+  return eventPool
     .map(normalizeFixture)
     .sort((a, b) => limaDate(a.date) - limaDate(b.date));
 }
@@ -170,17 +250,22 @@ function mergeEvents(...payloads) {
   return [...unique.values()];
 }
 
-function loadSchedule(teamId) {
-  if (!scheduleCache.has(teamId)) {
+function loadSchedule(teamId, path) {
+  const key = `${path}:${teamId}`;
+  if (!scheduleCache.has(key)) {
     scheduleCache.set(
-      teamId,
+      key,
       Promise.all([
-        getJson(`${ESPN.base}/teams/${teamId}/schedule?season=2026`),
-        getJson(`${ESPN.base}/teams/${teamId}/schedule?season=2025`)
+        getJsonSafe(`${espnUrl(path)}/teams/${teamId}/schedule?season=2026`),
+        getJsonSafe(`${espnUrl(path)}/teams/${teamId}/schedule?season=2025`)
       ]).then(([current, previous]) => mergeEvents(current, previous))
     );
   }
-  return scheduleCache.get(teamId);
+  return scheduleCache.get(key);
+}
+
+function poolFor(path) {
+  return eventPool.filter((event) => event._path === path);
 }
 
 function eventTeams(event) {
@@ -192,8 +277,8 @@ function eventTeams(event) {
   }));
 }
 
-function lastFive(events, teamId, excludeId) {
-  const merged = mergeEvents({ events: uclPool }, { events });
+function lastFive(events, teamId, excludeId, path) {
+  const merged = mergeEvents({ events: poolFor(path) }, { events });
   return merged
     .filter((event) => event.id !== excludeId)
     .filter((event) => event.competitions[0].status?.type?.completed)
@@ -220,8 +305,8 @@ function lastFive(events, teamId, excludeId) {
     });
 }
 
-function headToHead(homeEvents, awayEvents, homeId, awayId, excludeId) {
-  const merged = mergeEvents({ events: uclPool }, { events: homeEvents }, { events: awayEvents });
+function headToHead(homeEvents, awayEvents, homeId, awayId, excludeId, path) {
+  const merged = mergeEvents({ events: poolFor(path) }, { events: homeEvents }, { events: awayEvents });
   return merged
     .filter((event) => event.id !== excludeId)
     .filter((event) => event.competitions[0].status?.type?.completed)
@@ -250,24 +335,94 @@ function headToHead(homeEvents, awayEvents, homeId, awayId, excludeId) {
     });
 }
 
+function tickClock() {
+  const el = $("clock");
+  if (!el) return;
+  el.textContent = new Intl.DateTimeFormat("es-PE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "America/Lima"
+  }).format(new Date());
+}
+
+function fixtureDayKey(fix) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Lima",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(limaDate(fix.date));
+}
+
+function chipHtml(fix) {
+  const active = fix.id === selectedId ? "active" : "";
+  const finished = fix.completed ? "finished" : "";
+  const score = fix.completed
+    ? `<em>Final ${escapeHtml(fix.homeScore)}-${escapeHtml(fix.awayScore)}</em>`
+    : `<em class="live-slot">${escapeHtml(formatTime(fix.date))}</em>`;
+  return `
+    <button class="fixture-chip ${active} ${finished}" data-id="${escapeHtml(fix.id)}" type="button">
+      <span class="chip-league ${escapeHtml(fix.leagueId)}">${escapeHtml(fix.league)}</span>
+      <strong>${escapeHtml(fix.home.short)} vs ${escapeHtml(fix.away.short)}</strong>
+      <small>${escapeHtml(formatDate(fix.date))}</small>
+      ${score}
+    </button>
+  `;
+}
+
+function renderMoreRail() {
+  const rail = $("more-fixtures");
+  if (!rail) return;
+  const rows = visibleFixtures().filter((fix) => fix.id !== selectedId);
+  if (!rows.length) {
+    rail.innerHTML = `<div class="state-box">No hay más partidos en este filtro.</div>`;
+    return;
+  }
+  rail.innerHTML = rows.map(chipHtml).join("");
+}
+
 function renderFixtures() {
-  if (!fixtures.length) {
-    setBusy("fixtures", "No hay partidos pendientes en las próximas fechas.");
+  const filtered = visibleFixtures();
+
+  document.querySelectorAll(".feed-tab").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.feed === feedView);
+  });
+  document.querySelectorAll(".league-tab").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.league === leagueView);
+  });
+
+  if (!filtered.length) {
+    const empty = feedView === "finished"
+      ? "No hay partidos finalizados en este periodo."
+      : "No hay partidos pendientes en las próximas fechas.";
+    setBusy("fixtures", empty);
+    renderMoreRail();
     return;
   }
 
-  $("fixtures").innerHTML = fixtures.map((fix) => {
-    const active = fix.id === selectedId ? "active" : "";
-    const finished = fix.completed ? "finished" : "";
-    const score = fix.completed ? `<em>Final ${escapeHtml(fix.homeScore)}-${escapeHtml(fix.awayScore)}</em>` : "";
+  const order = [];
+  const grouped = new Map();
+  filtered.forEach((fix) => {
+    const key = fixtureDayKey(fix);
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+      order.push(key);
+    }
+    grouped.get(key).push(fix);
+  });
+
+  $("fixtures").innerHTML = order.map((key) => {
+    const rows = grouped.get(key);
     return `
-      <button class="fixture-chip ${active} ${finished}" data-id="${escapeHtml(fix.id)}" type="button">
-        <small>${escapeHtml(formatDate(fix.date))} · ${escapeHtml(formatTime(fix.date))}</small>
-        <strong>${escapeHtml(fix.home.short)} vs ${escapeHtml(fix.away.short)}</strong>
-        ${score}
-      </button>
+      <section class="jornada">
+        <h3>${escapeHtml(formatDate(rows[0].date))} · ${rows.length} partidos</h3>
+        <div class="fixtures-grid">${rows.map(chipHtml).join("")}</div>
+      </section>
     `;
   }).join("");
+  renderMoreRail();
 }
 
 function resultadoReal(fix) {
@@ -345,7 +500,8 @@ function renderNextMatch(fix) {
   $("next-match").innerHTML = `
     <div class="next-meta">
       <span class="pill ${fix.completed ? "red" : "gold"}">${estado}</span>
-      <span class="pill">${escapeHtml(fix.round)}</span>
+      <span class="pill">${escapeHtml(fix.leagueName || fix.league)}</span>
+      ${fix.round && fix.round !== fix.leagueName ? `<span class="pill">${escapeHtml(fix.round)}</span>` : ""}
     </div>
     <div class="matchup">
       <article class="team">
@@ -355,7 +511,7 @@ function renderNextMatch(fix) {
       </article>
       <div class="vs-block">
         <div class="vs">VS</div>
-        <small>UCL</small>
+        <small>${escapeHtml(fix.league)}</small>
       </div>
       <article class="team">
         <div class="badge" style="${badgeStyle(fix.away)}">${badgeHtml(fix.away)}</div>
@@ -390,6 +546,8 @@ function renderFormColumn(team, matches, role) {
     `;
   }
 
+  const puntos = matches.reduce((total, match) => total + ({ W: 3, D: 1, L: 0 }[match.result] || 0), 0);
+  const rendimiento = Math.round((puntos / (matches.length * 3)) * 100);
   const pills = matches.map((match) => `<span class="result ${match.result}">${match.result}</span>`).join("");
   const rows = matches.map((match) => `
     <article class="form-item">
@@ -411,6 +569,7 @@ function renderFormColumn(team, matches, role) {
         </div>
         <div class="form-pills" aria-label="Forma reciente">${pills}</div>
       </div>
+      <div class="streak-bar" aria-label="Rendimiento ${rendimiento}%"><i style="width:${rendimiento}%"></i></div>
       <div class="form-list">${rows}</div>
     </section>
   `;
@@ -549,6 +708,7 @@ async function showFixture(id) {
   const fix = fixtures.find((item) => item.id === id);
   if (!fix) return;
   selectedId = id;
+  setScreen("detail");
   renderFixtures();
   renderNextMatch(fix);
   $("result-panel").hidden = true;
@@ -557,16 +717,16 @@ async function showFixture(id) {
   setBusy("predictions", "Calculando Dixon-Coles, ELO y Poisson...");
 
   const [homeEvents, awayEvents] = await Promise.all([
-    loadSchedule(fix.home.id),
-    loadSchedule(fix.away.id)
+    loadSchedule(fix.home.id, fix.path),
+    loadSchedule(fix.away.id, fix.path)
   ]);
 
-  const formaLocal = lastFive(homeEvents, fix.home.id);
-  const formaVisita = lastFive(awayEvents, fix.away.id);
-  const historial = headToHead(homeEvents, awayEvents, fix.home.id, fix.away.id);
-  const formaLocalPred = lastFive(homeEvents, fix.home.id, fix.id);
-  const formaVisitaPred = lastFive(awayEvents, fix.away.id, fix.id);
-  const historialPred = headToHead(homeEvents, awayEvents, fix.home.id, fix.away.id, fix.id);
+  const formaLocal = lastFive(homeEvents, fix.home.id, undefined, fix.path);
+  const formaVisita = lastFive(awayEvents, fix.away.id, undefined, fix.path);
+  const historial = headToHead(homeEvents, awayEvents, fix.home.id, fix.away.id, undefined, fix.path);
+  const formaLocalPred = lastFive(homeEvents, fix.home.id, fix.eventId, fix.path);
+  const formaVisitaPred = lastFive(awayEvents, fix.away.id, fix.eventId, fix.path);
+  const historialPred = headToHead(homeEvents, awayEvents, fix.home.id, fix.away.id, fix.eventId, fix.path);
 
   $("form").innerHTML =
     renderFormColumn(fix.home, formaLocal, "Equipo local") +
@@ -585,21 +745,22 @@ async function showFixture(id) {
 }
 
 async function init() {
-  setBusy("fixtures", "Cargando próximos partidos desde ESPN...");
-  setBusy("next-match", "Conectando con la API de Champions League...");
+  setBusy("fixtures", "Cargando UCL, Premier League y Copa Libertadores...");
+  setBusy("next-match", "Conectando con ESPN (tres competiciones)...");
   setBusy("form", "Esperando cruce seleccionado...");
   setBusy("h2h", "Esperando cruce seleccionado...");
   setBusy("predictions", "Esperando cruce seleccionado...");
+  tickClock();
+  window.setInterval(tickClock, 1000);
 
   try {
     fixtures = await loadUpcoming();
+    setScreen("feed");
+    renderFixtures();
     if (!fixtures.length) {
-      setBusy("next-match", "No hay partidos de Champions League en este periodo.");
-      renderFixtures();
+      setBusy("fixtures", "No hay partidos de UCL, Premier League o Libertadores en este periodo.");
       return;
     }
-    const inicial = fixtures.find((fix) => !fix.completed) || fixtures[0];
-    await showFixture(inicial.id);
     window.setInterval(actualizarEstados, 45000);
   } catch (error) {
     setBusy("fixtures", "No se pudo leer la API de ESPN. Revisa tu conexión y recarga.");
@@ -617,6 +778,26 @@ document.addEventListener("click", (event) => {
   });
 });
 
+document.addEventListener("click", (event) => {
+  const tab = event.target.closest(".feed-tab");
+  if (!tab) return;
+  feedView = tab.dataset.feed;
+  renderFixtures();
+});
+
+document.addEventListener("click", (event) => {
+  const tab = event.target.closest(".league-tab");
+  if (!tab) return;
+  leagueView = tab.dataset.league;
+  renderFixtures();
+});
+
+document.addEventListener("click", (event) => {
+  const back = event.target.closest("#back-feed");
+  if (!back) return;
+  setScreen("feed");
+});
+
 async function actualizarEstados() {
   try {
     const actualizados = await loadUpcoming();
@@ -624,7 +805,7 @@ async function actualizarEstados() {
     fixtures = actualizados;
     renderFixtures();
     const ahora = fixtures.find((fix) => fix.id === selectedId);
-    if (ahora?.completed && !antes?.completed) {
+    if (screen === "detail" && ahora?.completed && !antes?.completed) {
       await showFixture(selectedId);
     }
   } catch (_error) {
