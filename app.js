@@ -27,6 +27,15 @@ const LEAGUES = [
     weekdays: [2, 3, 4],
     from: -45,
     to: 28
+  },
+  {
+    id: "uel",
+    short: "UEL",
+    name: "Europa League",
+    path: "uefa.europa",
+    weekdays: [2, 3, 4],
+    from: -45,
+    to: 28
   }
 ];
 
@@ -235,7 +244,7 @@ async function loadUpcoming() {
 
   eventPool = [...unique.values()];
   const chip = $("season-label");
-  if (chip) chip.textContent = "UCL · Premier League · Libertadores";
+  if (chip) chip.textContent = "UCL · Europa League · Premier · Libertadores";
 
   return eventPool
     .map(normalizeFixture)
@@ -745,8 +754,8 @@ async function showFixture(id) {
 }
 
 async function init() {
-  setBusy("fixtures", "Cargando UCL, Premier League y Copa Libertadores...");
-  setBusy("next-match", "Conectando con ESPN (tres competiciones)...");
+  setBusy("fixtures", "Cargando UCL, Europa League, Premier League y Libertadores...");
+  setBusy("next-match", "Conectando con ESPN (cuatro competiciones)...");
   setBusy("form", "Esperando cruce seleccionado...");
   setBusy("h2h", "Esperando cruce seleccionado...");
   setBusy("predictions", "Esperando cruce seleccionado...");
@@ -758,7 +767,7 @@ async function init() {
     setScreen("feed");
     renderFixtures();
     if (!fixtures.length) {
-      setBusy("fixtures", "No hay partidos de UCL, Premier League o Libertadores en este periodo.");
+      setBusy("fixtures", "No hay partidos de UCL, Europa League, Premier o Libertadores en este periodo.");
       return;
     }
     window.setInterval(actualizarEstados, 45000);

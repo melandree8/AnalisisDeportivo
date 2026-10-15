@@ -348,9 +348,17 @@ main {
   background: rgba(255, 238, 0, 0.1);
 }
 
+.league-tab[data-league="uel"].active,
+.league-tab[data-league="uel"]:hover {
+  color: #ff8a3d;
+  border-color: #ff8a3d;
+  background: rgba(255, 138, 61, 0.12);
+}
+
 .chip-league.epl { color: var(--violet); }
 .chip-league.lib { color: var(--volt); }
 .chip-league.ucl { color: var(--neon); }
+.chip-league.uel { color: #ff8a3d; }
 
 .jornada {
   margin-bottom: 28px;
